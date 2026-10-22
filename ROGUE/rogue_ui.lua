@@ -12692,6 +12692,46 @@ if game.PlaceId == 3541987450 or game.PlaceId == 5208655184 or game.PlaceId == 1
                 return LocationName
             end
 
+            -- Nearest AreaMarkers name for a world position (used for critical-distance zone rules)
+            local function detectPlayerArea(position)
+                if not position or not FindFirstChild(ws, "AreaMarkers") then
+                    return "None"
+                end
+                local locationName = "None"
+                local bestDistSq = math.huge
+                for _, marker in pairs(ws.AreaMarkers:GetChildren()) do
+                    local diff = position - marker.Position
+                    local distSq = diff.X * diff.X + diff.Y * diff.Y + diff.Z * diff.Z
+                    if distSq < bestDistSq then
+                        locationName = marker.Name
+                        bestDistSq = distSq
+                    end
+                end
+                return locationName
+            end
+
+            local function isLunarKeepOrSentinelArea(areaName)
+                if type(areaName) ~= "string" then
+                    return false
+                end
+                local lower = string.lower(areaName)
+                return string.find(lower, "lunar", 1, true) ~= nil
+                    or string.find(lower, "sentinel", 1, true) ~= nil
+            end
+
+            -- Outside Lunar Keep / Sentinel: use slider. Inside those areas only: force 100 studs.
+            local function getEffectiveCriticalDistance()
+                local base = Options.CriticalDistance and Options.CriticalDistance.Value or 60
+                if base <= 0 then
+                    return 0
+                end
+                local hrp = plr.Character and FindFirstChild(plr.Character, "HumanoidRootPart")
+                if hrp and isLunarKeepOrSentinelArea(detectPlayerArea(hrp.Position)) then
+                    return 100
+                end
+                return base
+            end
+
             local function Gate(where, expected_destination)
                 if not trinket_bot.path_running then
                     return false
@@ -14268,7 +14308,7 @@ if game.PlaceId == 3541987450 or game.PlaceId == 5208655184 or game.PlaceId == 1
                 proximity_connection = track_connection("proximity", utility:Connection(rs.Heartbeat, LPH_NO_VIRTUALIZE(function()
                     if plr.Character and FindFirstChild(plr.Character, "HumanoidRootPart") then
                         local bot_pos = plr.Character.HumanoidRootPart.Position
-                        local critical_distance = Options.CriticalDistance and Options.CriticalDistance.Value or 60
+                        local critical_distance = getEffectiveCriticalDistance()
                         local stay_in_server = Toggles.StayInServer and Toggles.StayInServer.Value or false
 
                         if critical_distance > 0 and not critical_serverhop_sent and not stay_in_server then
@@ -14812,7 +14852,7 @@ if game.PlaceId == 3541987450 or game.PlaceId == 5208655184 or game.PlaceId == 1
 
                                 local CollectionService = Services.CollectionService
                                 if plr.Character and CollectionService:HasTag(plr.Character, "SnapCool") then
-                                    local critical_distance = Options.CriticalDistance and Options.CriticalDistance.Value or 60
+                                    local critical_distance = getEffectiveCriticalDistance()
                                     local player_in_critical_range = false
                                     local closest_player_dist = math.huge
 
@@ -15379,7 +15419,7 @@ if game.PlaceId == 3541987450 or game.PlaceId == 5208655184 or game.PlaceId == 1
                                 else
                                     if plr.Character and FindFirstChild(plr.Character, "HumanoidRootPart") then
                                         local bot_pos = plr.Character.HumanoidRootPart.Position
-                                        local critical_distance = Options.CriticalDistance and Options.CriticalDistance.Value or 60
+                                        local critical_distance = getEffectiveCriticalDistance()
                                         local stay_in_server = Toggles.StayInServer and Toggles.StayInServer.Value or false
 
                                         if critical_distance > 0 and not stay_in_server then
@@ -16783,7 +16823,7 @@ if game.PlaceId == 3541987450 or game.PlaceId == 5208655184 or game.PlaceId == 1
                 Max = 1000,
                 Rounding = 0,
                 Compact = true,
-                Tooltip = "Bot will instantly serverhop if a player is within this range (bypasses all other checks, 0 = disabled)"
+                Tooltip = "Instant hop if a player is this close (0 = off). Inside Lunar Keep / Sentinel only, forced to 100 studs."
             })
 
             group_trinket_bot:AddSlider("MinPlayerCount", {

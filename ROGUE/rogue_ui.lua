@@ -12719,7 +12719,7 @@ if game.PlaceId == 3541987450 or game.PlaceId == 5208655184 or game.PlaceId == 1
                     or string.find(lower, "sentinel", 1, true) ~= nil
             end
 
-            -- Outside Lunar Keep / Sentinel: use slider. Inside those areas only: force 100 studs.
+            -- Outside Lunar Keep / Sentinel: use slider. Inside those areas only: force 150 studs.
             local function getEffectiveCriticalDistance()
                 local base = Options.CriticalDistance and Options.CriticalDistance.Value or 60
                 if base <= 0 then
@@ -12727,7 +12727,7 @@ if game.PlaceId == 3541987450 or game.PlaceId == 5208655184 or game.PlaceId == 1
                 end
                 local hrp = plr.Character and FindFirstChild(plr.Character, "HumanoidRootPart")
                 if hrp and isLunarKeepOrSentinelArea(detectPlayerArea(hrp.Position)) then
-                    return 100
+                    return 150
                 end
                 return base
             end
@@ -16823,7 +16823,7 @@ if game.PlaceId == 3541987450 or game.PlaceId == 5208655184 or game.PlaceId == 1
                 Max = 1000,
                 Rounding = 0,
                 Compact = true,
-                Tooltip = "Instant hop if a player is this close (0 = off). Inside Lunar Keep / Sentinel only, forced to 100 studs."
+                Tooltip = "Instant hop if a player is this close (0 = off). Inside Lunar Keep / Sentinel only, forced to 150 studs."
             })
 
             group_trinket_bot:AddSlider("MinPlayerCount", {

@@ -18576,7 +18576,8 @@ if game.PlaceId == 3541987450 or game.PlaceId == 5208655184 or game.PlaceId == 1
                     library:Notify("Stop Trinket Bot first")
                     return
                 end
-                if game.PlaceId == 3541987450 or game.PlaceId == 5208655184 then
+                -- Gaia = 5208655184, Khei = 3541987450 / 14341521240
+                if not (is_gaia or is_khei) then
                     library:Notify("Seer bot is for Gaia / Khei, not this place")
                     return
                 end

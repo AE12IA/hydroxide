@@ -18390,7 +18390,55 @@ if game.PlaceId == 3541987450 or game.PlaceId == 5208655184 or game.PlaceId == 1
                 return choices[1]
             end
 
-            -- SmoothTeleport hard-caps at 1500 studs; Seer often needs to close a gap after inn respawn.
+            -- Plant on the floor so AA doesn't gun you before the next fly/tween.
+            local function seer_stand_on_ground(seconds)
+                seconds = seconds or 2
+                seer_set_status(string.format("Standing on ground (%.0fs)", seconds))
+
+                local char = plr.Character
+                local hrp = char and FindFirstChild(char, "HumanoidRootPart")
+                local hum = char and FindFirstChildOfClass(char, "Humanoid")
+                if not hrp or not hum then
+                    return false
+                end
+
+                pcall(function()
+                    hum:SetStateEnabled(Enum.HumanoidStateType.Flying, true)
+                    hum:SetStateEnabled(5, true)
+                    hum:ChangeState(Enum.HumanoidStateType.GettingUp)
+                end)
+
+                pcall(function()
+                    local origin = hrp.Position + Vector3.new(0, 2, 0)
+                    local result = ws:Raycast(origin, Vector3.new(0, -80, 0))
+                    if result then
+                        plr.Character:PivotTo(CFrame.new(result.Position + Vector3.new(0, 3, 0)))
+                    end
+                    hrp.AssemblyLinearVelocity = Vector3.zero
+                    hrp.Velocity = Vector3.zero
+                end)
+
+                local elapsed = 0
+                while elapsed < seconds and not seer_aborting() do
+                    char = plr.Character
+                    hrp = char and FindFirstChild(char, "HumanoidRootPart")
+                    hum = char and FindFirstChildOfClass(char, "Humanoid")
+                    if hrp then
+                        hrp.AssemblyLinearVelocity = Vector3.zero
+                        hrp.Velocity = Vector3.zero
+                    end
+                    if hum then
+                        pcall(function()
+                            hum:SetStateEnabled(5, true)
+                        end)
+                    end
+                    elapsed = elapsed + task.wait()
+                end
+
+                return not seer_aborting()
+            end
+
+            -- Direct path only: snap if too far for SmoothTeleport, else tween straight to the point.
             local function seer_goto(targetPos)
                 if seer_aborting() or typeof(targetPos) ~= "Vector3" then
                     return false
@@ -18403,58 +18451,38 @@ if game.PlaceId == 3541987450 or game.PlaceId == 5208655184 or game.PlaceId == 1
                 end
 
                 local dist = (targetPos - hrp.Position).Magnitude
+                if dist <= 8 then
+                    return true
+                end
+
                 if dist > 1400 then
-                    seer_set_status(string.format("Far (%.0f studs) — snapping near target", dist))
-                    local offset = hrp.Position - targetPos
-                    if offset.Magnitude < 1 then
-                        offset = Vector3.new(0, 0, 8)
-                    else
-                        offset = offset.Unit * 8
-                    end
-                    local near = targetPos + offset + Vector3.new(0, 3, 0)
+                    seer_set_status(string.format("Snapping to quest point (%.0f studs)", dist))
+                    local near = targetPos + Vector3.new(0, 3, 0)
                     pcall(function()
                         plr.Character:PivotTo(CFrame.new(near))
                         hrp.AssemblyLinearVelocity = Vector3.zero
                         hrp.Velocity = Vector3.zero
                     end)
-                    task.wait(0.4)
+                    task.wait(0.35)
+                    if not seer_stand_on_ground(2) then
+                        return false
+                    end
+                    char = plr.Character
+                    hrp = char and FindFirstChild(char, "HumanoidRootPart")
+                    if not hrp then
+                        return false
+                    end
+                    dist = (targetPos - hrp.Position).Magnitude
+                    if dist <= 8 then
+                        return true
+                    end
                 end
 
                 if seer_aborting() then
                     return false
                 end
 
-                char = plr.Character
-                hrp = char and FindFirstChild(char, "HumanoidRootPart")
-                if not hrp then
-                    return false
-                end
-
-                dist = (targetPos - hrp.Position).Magnitude
-                if dist > 8 then
-                    -- Chunk if still somehow over the SmoothTeleport limit
-                    while not seer_aborting() do
-                        char = plr.Character
-                        hrp = char and FindFirstChild(char, "HumanoidRootPart")
-                        if not hrp then
-                            return false
-                        end
-                        dist = (targetPos - hrp.Position).Magnitude
-                        if dist <= 8 then
-                            break
-                        end
-                        if dist > 1400 then
-                            local dir = (targetPos - hrp.Position).Unit
-                            local hop = hrp.Position + dir * 1400
-                            SmoothTeleport(hop)
-                        else
-                            SmoothTeleport(targetPos)
-                            break
-                        end
-                        task.wait(0.05)
-                    end
-                end
-
+                SmoothTeleport(targetPos)
                 return not seer_aborting()
             end
 
@@ -18492,9 +18520,9 @@ if game.PlaceId == 3541987450 or game.PlaceId == 5208655184 or game.PlaceId == 1
                     local char = plr.Character
                     local my = char and FindFirstChild(char, "HumanoidRootPart")
                     if my then
-                        if (my.Position - hrp.Position).Magnitude > 12 then
-                            seer_goto(hrp.Position + Vector3.new(0, 2, 0))
-                        end
+                        -- Stay planted while talking — no mid-dialogue fly
+                        my.AssemblyLinearVelocity = Vector3.zero
+                        my.Velocity = Vector3.zero
                         pcall(function()
                             fireclickdetector(click)
                         end)
@@ -18516,6 +18544,7 @@ if game.PlaceId == 3541987450 or game.PlaceId == 5208655184 or game.PlaceId == 1
                 return not seer_aborting()
             end
 
+            -- Strict route: Southern Sanctuary inn → ground → scroom girl point → ground → talk
             local function seer_step_gaia_scroom()
                 local target = seer_bot.step_points.gaia_scroom
                 if not target then
@@ -18523,7 +18552,7 @@ if game.PlaceId == 3541987450 or game.PlaceId == 5208655184 or game.PlaceId == 1
                     return false
                 end
 
-                seer_set_status("Scroom girl: setting spawn (Southern Sanctuary)")
+                seer_set_status("Scroom girl: TP Southern Sanctuary inn")
                 if not shared.teleport_to_inn then
                     library:Notify("Inn teleport unavailable (Gaia only)")
                     return false
@@ -18542,17 +18571,21 @@ if game.PlaceId == 3541987450 or game.PlaceId == 5208655184 or game.PlaceId == 1
                     return false
                 end
 
-                -- If spawn didn't stick, seer_goto snaps/chunks instead of the 1500 stud abort
-                seer_set_status("Scroom girl: pathing to NPC")
+                if not seer_stand_on_ground(2) then
+                    return false
+                end
+
+                seer_set_status("Scroom girl: going to girl point")
                 if not seer_goto(target) or seer_aborting() then
+                    return false
+                end
+
+                if not seer_stand_on_ground(2) then
                     return false
                 end
 
                 local npc = seer_find_npc("Lachesis")
                 if not npc then
-                    -- Point is set; try talking via proximity click on any nearby named NPC fallback
-                    library:Notify("Lachesis not found by name — stand-check: click whatever is at your point")
-                    -- Still attempt click on nearest ClickDetector NPC within 25 studs
                     local npcs = FindFirstChild(ws, "NPCs")
                     local best, best_dist
                     local my = plr.Character and FindFirstChild(plr.Character, "HumanoidRootPart")
@@ -18574,13 +18607,13 @@ if game.PlaceId == 3541987450 or game.PlaceId == 5208655184 or game.PlaceId == 1
                     return false
                 end
 
-                seer_set_status("Scroom girl: talking (pick Scroom / Tespian)")
+                seer_set_status("Scroom girl: talking")
                 local talked = seer_talk_to_npc(npc, 10)
                 if not talked or seer_aborting() then
                     return false
                 end
 
-                library:Notify("Scroom girl quest step finished")
+                library:Notify("Scroom girl quest done")
                 return true
             end
 
@@ -18588,9 +18621,22 @@ if game.PlaceId == 3541987450 or game.PlaceId == 5208655184 or game.PlaceId == 1
                 gaia_scroom = seer_step_gaia_scroom,
             }
 
+            local function seer_first_incomplete_step()
+                for i = 1, #SEER_STEPS do
+                    if not seer_is_completed(i) then
+                        return i
+                    end
+                end
+                return #SEER_STEPS + 1
+            end
+
             local function seer_advance()
                 seer_mark_completed(seer_bot.current_step)
                 seer_bot.current_step = seer_bot.current_step + 1
+                -- Skip any already-completed steps after this one
+                while seer_bot.current_step <= #SEER_STEPS and seer_is_completed(seer_bot.current_step) do
+                    seer_bot.current_step = seer_bot.current_step + 1
+                end
                 seer_save_settings()
                 seer_update_labels()
             end
@@ -18607,44 +18653,46 @@ if game.PlaceId == 3541987450 or game.PlaceId == 5208655184 or game.PlaceId == 1
 
             local function seer_run_loop()
                 while seer_bot.running and not shared.is_unloading do
+                    -- Always walk from current; skip completed
+                    while seer_bot.current_step <= #SEER_STEPS and seer_is_completed(seer_bot.current_step) do
+                        seer_bot.current_step = seer_bot.current_step + 1
+                        seer_update_labels()
+                    end
+
                     if seer_bot.current_step > #SEER_STEPS then
                         seer_set_status("Checklist complete")
                         library:Notify("Seer checklist complete")
                         seer_bot.running = false
+                        seer_save_settings()
                         break
                     end
 
                     local step = SEER_STEPS[seer_bot.current_step]
-                    if seer_is_completed(seer_bot.current_step) then
-                        seer_bot.current_step = seer_bot.current_step + 1
-                        seer_update_labels()
-                    else
-                        local handler = SEER_HANDLERS[step.id]
-                        if not handler then
-                            seer_set_status("Paused — no handler for: " .. step.name)
-                            library:Notify("No handler yet for: " .. step.name .. " (Skip or Stop)")
-                            seer_bot.running = false
-                            break
-                        end
+                    local handler = SEER_HANDLERS[step.id]
+                    if not handler then
+                        seer_set_status("Paused — no handler for: " .. step.name)
+                        library:Notify("No handler yet for: " .. step.name .. " (Skip or Stop)")
+                        seer_bot.running = false
+                        break
+                    end
 
-                        seer_set_status("Running: " .. step.name)
-                        local ok = handler()
-                        if not seer_bot.running or shared.is_unloading then
-                            break
-                        end
-                        if ok then
-                            seer_advance()
-                        else
-                            seer_set_status("Failed: " .. step.name)
-                            library:Notify("Seer step failed: " .. step.name)
-                            seer_bot.running = false
-                            break
-                        end
+                    seer_set_status("Running: " .. step.name)
+                    local ok = handler()
+                    if not seer_bot.running or shared.is_unloading then
+                        break
+                    end
+                    if ok then
+                        seer_advance()
+                    else
+                        seer_set_status("Failed: " .. step.name)
+                        library:Notify("Seer step failed: " .. step.name)
+                        seer_bot.running = false
+                        break
                     end
                     task.wait(0.2)
                 end
 
-                if not seer_bot.running and seer_bot.status_text == "Running" then
+                if not seer_bot.running and (seer_bot.status_text == "Running" or seer_bot.status_text == "Starting") then
                     seer_set_status("Stopped")
                 else
                     seer_update_labels()
@@ -18661,9 +18709,21 @@ if game.PlaceId == 3541987450 or game.PlaceId == 5208655184 or game.PlaceId == 1
                     return
                 end
 
+                -- Always begin from quest 1 and skip any already marked done
+                seer_bot.current_step = seer_first_incomplete_step()
+                seer_save_settings()
+                seer_update_labels()
+
+                if seer_bot.current_step > #SEER_STEPS then
+                    library:Notify("All Seer steps already marked done — Reset Progress to rerun")
+                    seer_set_status("Idle (complete)")
+                    return
+                end
+
                 seer_bot.running = true
-                seer_set_status("Starting")
-                library:Notify("Seer bot started")
+                local step = SEER_STEPS[seer_bot.current_step]
+                seer_set_status("Starting → " .. (step and step.name or "?"))
+                library:Notify(string.format("Seer started at step %d", seer_bot.current_step))
                 task.spawn(seer_run_loop)
             end
 
@@ -18728,7 +18788,7 @@ if game.PlaceId == 3541987450 or game.PlaceId == 5208655184 or game.PlaceId == 1
 
             group_seer_bot:AddButton({
                 Text = "Start Seer Bot",
-                Tooltip = "Step 1: set spawn Southern Sanctuary via inn TP, path to scroom girl, talk.",
+                Tooltip = "Starts from quest 1, skips done ones. Scroom: Southern Sanctuary inn → stand 2s → girl → stand 2s → talk.",
                 Func = function()
                     seer_start()
                 end

@@ -8413,76 +8413,90 @@ if game.PlaceId == 3541987450 or game.PlaceId == 5208655184 or game.PlaceId == 1
                     end
                 })
 
+                local function teleport_to_inn(inn_name, opts)
+                    opts = opts or {}
+                    if shared and shared.is_unloading then return false end
+                    if not utility then return false end
+                    if not inn_name then
+                        library:Notify("No inn selected")
+                        return false
+                    end
+
+                    if not plr.Character or not FindFirstChild(plr.Character, "HumanoidRootPart") then
+                        library:Notify("Character not found")
+                        return false
+                    end
+
+                    local hrp = plr.Character.HumanoidRootPart
+                    local dialogue_response = (inn_name == "Flowerlight Town") and "A room, please." or "Sure."
+
+                    local inn_keeper
+                    if inn_name == "Flowerlight Town" then
+                        inn_keeper = FindFirstChild(ws.NPCs, "Ria")
+                    elseif inn_name == "Scroomville" then
+                        inn_keeper = FindFirstChild(ws.NPCs, "Fungkeeper")
+                    else
+                        for _, npc in next, ws.NPCs:GetChildren() do
+                            if npc.Name == "Inn Keeper" and FindFirstChild(npc, "Location") and npc.Location.Value == inn_name then
+                                inn_keeper = npc
+                                break
+                            end
+                        end
+                    end
+
+                    if not inn_keeper then
+                        library:Notify("Inn keeper not found at " .. inn_name)
+                        return false
+                    end
+
+                    if not FindFirstChild(inn_keeper, "HumanoidRootPart") then
+                        library:Notify("Inn keeper has no HumanoidRootPart")
+                        return false
+                    end
+
+                    local elapsed_time = 0
+                    while elapsed_time < 1 and not (shared and shared.is_unloading) do
+                        if opts.should_abort and opts.should_abort() then
+                            return false
+                        end
+                        if plr.Character then
+                            plr.Character:PivotTo(inn_keeper:GetPivot())
+                            hrp.Velocity = Vector3.zero
+
+                            if (hrp.Position - inn_keeper.HumanoidRootPart.Position).Magnitude <= 10 then
+                                local click_detector = FindFirstChildWhichIsA(inn_keeper, "ClickDetector", true)
+                                if click_detector then
+                                    fireclickdetector(click_detector)
+                                end
+                            end
+
+                            if dialogue_remote then
+                                dialogue_remote:FireServer({choice = dialogue_response})
+                            end
+                        end
+
+                        elapsed_time = elapsed_time + task.wait()
+                    end
+
+                    if opts.should_abort and opts.should_abort() then
+                        return false
+                    end
+
+                    if plr.Character then
+                        plr.Character:BreakJoints()
+                    end
+
+                    library:Notify("Teleported to " .. inn_name)
+                    return true
+                end
+
+                shared.teleport_to_inn = teleport_to_inn
+
                 group_exploits:AddButton("teleport_to_inn", {
                     Text = "Teleport",
                     Func = function()
-                        if shared and shared.is_unloading then return end
-                        if not utility then return end
-
                         task.spawn(function()
-                            if not selected_inn then
-                                library:Notify("No inn selected")
-                                return
-                            end
-
-                            if not plr.Character or not FindFirstChild(plr.Character, "HumanoidRootPart") then
-                                library:Notify("Character not found")
-                                return
-                            end
-
-                            local hrp = plr.Character.HumanoidRootPart
-                            local dialogue_response = (selected_inn == "Flowerlight Town") and "A room, please." or "Sure."
-
-                            local inn_keeper
-                            if selected_inn == "Flowerlight Town" then
-                                inn_keeper = FindFirstChild(ws.NPCs, "Ria")
-                            elseif selected_inn == "Scroomville" then
-                                inn_keeper = FindFirstChild(ws.NPCs, "Fungkeeper")
-                            else
-                                for _, npc in next, ws.NPCs:GetChildren() do
-                                    if npc.Name == "Inn Keeper" and FindFirstChild(npc, "Location") and npc.Location.Value == selected_inn then
-                                        inn_keeper = npc
-                                        break
-                                    end
-                                end
-                            end
-
-                            if not inn_keeper then
-                                library:Notify("Inn keeper not found at " .. selected_inn)
-                                return
-                            end
-
-                            if not FindFirstChild(inn_keeper, "HumanoidRootPart") then
-                                library:Notify("Inn keeper has no HumanoidRootPart")
-                                return
-                            end
-
-                            local elapsed_time = 0
-                            while elapsed_time < 1 and not (shared and shared.is_unloading) do
-                                if plr.Character then
-                                    plr.Character:PivotTo(inn_keeper:GetPivot())
-                                    hrp.Velocity = Vector3.zero
-
-                                    if (hrp.Position - inn_keeper.HumanoidRootPart.Position).Magnitude <= 10 then
-                                        local click_detector = FindFirstChildWhichIsA(inn_keeper, "ClickDetector", true)
-                                        if click_detector then
-                                            fireclickdetector(click_detector)
-                                        end
-                                    end
-
-                                    if dialogue_remote then
-                                        dialogue_remote:FireServer({choice = dialogue_response})
-                                    end
-                                end
-
-                                elapsed_time = elapsed_time + task.wait()
-                            end
-
-                            if plr.Character then
-                                plr.Character:BreakJoints()
-                            end
-
-                            library:Notify("Teleported to " .. selected_inn)
+                            teleport_to_inn(selected_inn)
                         end)
                     end
                 })
@@ -12559,7 +12573,18 @@ if game.PlaceId == 3541987450 or game.PlaceId == 5208655184 or game.PlaceId == 1
                 if distance > 1500 then
                     library:Notify(string.format("!! Attempted teleport of %.0f studs! Stopping path... (if this is a bug DM work at a pizza place bot)", distance))
                     trinket_bot.path_running = false
+                    if cheat_client.seer_bot then
+                        cheat_client.seer_bot.running = false
+                    end
                     return
+                end
+
+                local function bot_path_active()
+                    if trinket_bot.path_running then
+                        return true
+                    end
+                    local sb = cheat_client.seer_bot
+                    return sb and sb.running == true
                 end
 
                 local character = plr.Character
@@ -12613,11 +12638,11 @@ if game.PlaceId == 3541987450 or game.PlaceId == 5208655184 or game.PlaceId == 1
                     end
                 end)
 
-                while not completed and not shared.is_unloading and trinket_bot.path_running and not emergency_gate_requested and not trinket_bot.moderator_detected do
+                while not completed and not shared.is_unloading and bot_path_active() and not emergency_gate_requested and not trinket_bot.moderator_detected do
                     task.wait()
                 end
 
-                if shared.is_unloading or not trinket_bot.path_running or trinket_bot.moderator_detected then
+                if shared.is_unloading or not bot_path_active() or trinket_bot.moderator_detected then
                     tween:Cancel()
                 end
 
@@ -18174,12 +18199,13 @@ if game.PlaceId == 3541987450 or game.PlaceId == 5208655184 or game.PlaceId == 1
                 Tooltip = "Wait time before respawning and restarting path (in minutes)"
             })
 
-            -- Seer Edict Bot (menu shell — step runner comes next)
+            -- Seer Edict Bot
             local seer_bot = {
                 running = false,
                 current_step = 1,
                 completed = {},
-                afk_spot = nil, -- Vector3 for Day 12 AFK
+                afk_spot = nil,
+                step_points = {}, -- [step_id] = Vector3
                 status_text = "Idle",
             }
             cheat_client.seer_bot = seer_bot
@@ -18211,6 +18237,7 @@ if game.PlaceId == 3541987450 or game.PlaceId == 5208655184 or game.PlaceId == 1
 
             local seer_status_label
             local seer_step_label
+            local seer_point_label
 
             local function seer_step_names()
                 local names = {}
@@ -18218,6 +18245,53 @@ if game.PlaceId == 3541987450 or game.PlaceId == 5208655184 or game.PlaceId == 1
                     names[i] = string.format("%d. [%s] %s", i, step.region, step.name)
                 end
                 return names
+            end
+
+            local function seer_save_settings()
+                pcall(function()
+                    local hs = Services.HttpService
+                    local points = {}
+                    for id, pos in pairs(seer_bot.step_points) do
+                        if typeof(pos) == "Vector3" then
+                            points[id] = { x = pos.X, y = pos.Y, z = pos.Z }
+                        end
+                    end
+                    local afk = nil
+                    if typeof(seer_bot.afk_spot) == "Vector3" then
+                        afk = { x = seer_bot.afk_spot.X, y = seer_bot.afk_spot.Y, z = seer_bot.afk_spot.Z }
+                    end
+                    mem:SetItem("seer_bot_settings", hs:JSONEncode({
+                        step_points = points,
+                        afk_spot = afk,
+                        current_step = seer_bot.current_step,
+                        completed = seer_bot.completed,
+                    }))
+                end)
+            end
+
+            local function seer_load_settings()
+                pcall(function()
+                    local hs = Services.HttpService
+                    if not mem:HasItem("seer_bot_settings") then return end
+                    local data = hs:JSONDecode(mem:GetItem("seer_bot_settings"))
+                    if type(data) ~= "table" then return end
+                    if type(data.step_points) == "table" then
+                        for id, p in pairs(data.step_points) do
+                            if type(p) == "table" and p.x then
+                                seer_bot.step_points[id] = Vector3.new(p.x, p.y, p.z)
+                            end
+                        end
+                    end
+                    if type(data.afk_spot) == "table" and data.afk_spot.x then
+                        seer_bot.afk_spot = Vector3.new(data.afk_spot.x, data.afk_spot.y, data.afk_spot.z)
+                    end
+                    if type(data.completed) == "table" then
+                        seer_bot.completed = data.completed
+                    end
+                    if type(data.current_step) == "number" and SEER_STEPS[data.current_step] then
+                        seer_bot.current_step = data.current_step
+                    end
+                end)
             end
 
             local function seer_update_labels()
@@ -18231,6 +18305,14 @@ if game.PlaceId == 3541987450 or game.PlaceId == 5208655184 or game.PlaceId == 1
                 if seer_step_label and seer_step_label.SetText then
                     seer_step_label:SetText(step_text)
                 end
+                if seer_point_label and seer_point_label.SetText then
+                    local pt = step and seer_bot.step_points[step.id]
+                    if pt then
+                        seer_point_label:SetText(string.format("NPC point: %.0f, %.0f, %.0f", pt.X, pt.Y, pt.Z))
+                    else
+                        seer_point_label:SetText("NPC point: not set (uses Lachesis if found)")
+                    end
+                end
             end
 
             local function seer_set_status(text)
@@ -18243,6 +18325,7 @@ if game.PlaceId == 3541987450 or game.PlaceId == 5208655184 or game.PlaceId == 1
                 if step then
                     seer_bot.completed[step.id] = true
                 end
+                seer_save_settings()
             end
 
             local function seer_is_completed(index)
@@ -18253,11 +18336,181 @@ if game.PlaceId == 3541987450 or game.PlaceId == 5208655184 or game.PlaceId == 1
             local function seer_reset_progress()
                 seer_bot.completed = {}
                 seer_bot.current_step = 1
+                seer_save_settings()
                 seer_set_status(seer_bot.running and "Running" or "Idle")
                 library:Notify("Seer progress reset")
             end
 
-            -- Placeholder: real step runner will replace this
+            local function seer_aborting()
+                return (not seer_bot.running) or shared.is_unloading
+            end
+
+            local function seer_wait_alive(timeout)
+                local deadline = tick() + (timeout or 45)
+                while not seer_aborting() and tick() < deadline do
+                    local char = plr.Character
+                    local hrp = char and FindFirstChild(char, "HumanoidRootPart")
+                    local hum = char and FindFirstChildOfClass(char, "Humanoid")
+                    if hrp and hum and hum.Health > 0 then
+                        task.wait(1.25)
+                        return true
+                    end
+                    task.wait(0.15)
+                end
+                return false
+            end
+
+            local function seer_find_npc(name)
+                local npcs = FindFirstChild(ws, "NPCs")
+                if not npcs then return nil end
+                local npc = FindFirstChild(npcs, name)
+                if npc and FindFirstChild(npc, "HumanoidRootPart") then
+                    return npc
+                end
+                for _, child in ipairs(npcs:GetChildren()) do
+                    if child.Name == name and FindFirstChild(child, "HumanoidRootPart") then
+                        return child
+                    end
+                end
+                return nil
+            end
+
+            local function seer_pick_dialogue_choice(choices)
+                if type(choices) ~= "table" or #choices == 0 then
+                    return nil
+                end
+                local preferred = { "scroom", "tespian", "elixir", "mushroom", "yes", "sure", "of course" }
+                for _, key in ipairs(preferred) do
+                    for _, choice in ipairs(choices) do
+                        if type(choice) == "string" and string.find(string.lower(choice), key, 1, true) then
+                            return choice
+                        end
+                    end
+                end
+                return choices[1]
+            end
+
+            local function seer_talk_to_npc(npc, duration)
+                if not npc or seer_aborting() then return false end
+                local hrp = FindFirstChild(npc, "HumanoidRootPart")
+                local click = FindFirstChildWhichIsA(npc, "ClickDetector", true)
+                if not hrp or not click then
+                    library:Notify("NPC missing HRP/ClickDetector")
+                    return false
+                end
+
+                local conn
+                local finished = false
+                if dialogue_remote then
+                    conn = utility:Connection(dialogue_remote.OnClientEvent, function(dialogData)
+                        if seer_aborting() or type(dialogData) ~= "table" then return end
+                        if not (plr.Character and FindFirstChild(plr.Character, "InDialogue")) then return end
+                        task.wait(0.12)
+                        if not dialogData.choices or #dialogData.choices == 0 then
+                            dialogue_remote:FireServer({ exit = true })
+                            finished = true
+                        else
+                            local choice = seer_pick_dialogue_choice(dialogData.choices)
+                            if choice then
+                                dialogue_remote:FireServer({ choice = choice })
+                            end
+                        end
+                    end)
+                end
+
+                local elapsed = 0
+                local max_t = duration or 8
+                while elapsed < max_t and not seer_aborting() do
+                    local char = plr.Character
+                    local my = char and FindFirstChild(char, "HumanoidRootPart")
+                    if my then
+                        if (my.Position - hrp.Position).Magnitude > 12 then
+                            SmoothTeleport(hrp.Position + Vector3.new(0, 2, 0))
+                        end
+                        pcall(function()
+                            fireclickdetector(click)
+                        end)
+                    end
+                    if finished and not (plr.Character and FindFirstChild(plr.Character, "InDialogue")) then
+                        break
+                    end
+                    elapsed = elapsed + task.wait(0.35)
+                end
+
+                if conn then
+                    pcall(function() conn:Disconnect() end)
+                end
+                if dialogue_remote and plr.Character and FindFirstChild(plr.Character, "InDialogue") then
+                    pcall(function()
+                        dialogue_remote:FireServer({ exit = true })
+                    end)
+                end
+                return not seer_aborting()
+            end
+
+            local function seer_step_gaia_scroom()
+                seer_set_status("Scroom girl: setting spawn (Southern Sanctuary)")
+                if not shared.teleport_to_inn then
+                    library:Notify("Inn teleport unavailable (Gaia only)")
+                    return false
+                end
+
+                local ok = shared.teleport_to_inn("Southern Sanctuary", {
+                    should_abort = seer_aborting,
+                })
+                if not ok or seer_aborting() then
+                    return false
+                end
+
+                seer_set_status("Scroom girl: waiting for respawn")
+                if not seer_wait_alive(60) or seer_aborting() then
+                    library:Notify("Timed out waiting for respawn at Southern Sanctuary")
+                    return false
+                end
+
+                local target = seer_bot.step_points.gaia_scroom
+                local npc = seer_find_npc("Lachesis")
+                if not target and npc then
+                    target = npc.HumanoidRootPart.Position + Vector3.new(0, 2, 0)
+                end
+                if not target then
+                    library:Notify("Set Scroom Girl Point first (stand by her), or Lachesis not found")
+                    return false
+                end
+
+                seer_set_status("Scroom girl: pathing to NPC")
+                SmoothTeleport(target)
+                if seer_aborting() then return false end
+
+                if not npc then
+                    npc = seer_find_npc("Lachesis")
+                end
+                if not npc then
+                    library:Notify("Lachesis (scroom girl) not found after path")
+                    return false
+                end
+
+                seer_set_status("Scroom girl: talking (pick Scroom / Tespian)")
+                local talked = seer_talk_to_npc(npc, 10)
+                if not talked or seer_aborting() then
+                    return false
+                end
+
+                library:Notify("Scroom girl quest step finished")
+                return true
+            end
+
+            local SEER_HANDLERS = {
+                gaia_scroom = seer_step_gaia_scroom,
+            }
+
+            local function seer_advance()
+                seer_mark_completed(seer_bot.current_step)
+                seer_bot.current_step = seer_bot.current_step + 1
+                seer_save_settings()
+                seer_update_labels()
+            end
+
             local function seer_stop()
                 if not seer_bot.running then
                     library:Notify("Seer bot is not running")
@@ -18266,6 +18519,52 @@ if game.PlaceId == 3541987450 or game.PlaceId == 5208655184 or game.PlaceId == 1
                 seer_bot.running = false
                 seer_set_status("Stopped")
                 library:Notify("Seer bot stopped")
+            end
+
+            local function seer_run_loop()
+                while seer_bot.running and not shared.is_unloading do
+                    if seer_bot.current_step > #SEER_STEPS then
+                        seer_set_status("Checklist complete")
+                        library:Notify("Seer checklist complete")
+                        seer_bot.running = false
+                        break
+                    end
+
+                    local step = SEER_STEPS[seer_bot.current_step]
+                    if seer_is_completed(seer_bot.current_step) then
+                        seer_bot.current_step = seer_bot.current_step + 1
+                        seer_update_labels()
+                    else
+                        local handler = SEER_HANDLERS[step.id]
+                        if not handler then
+                            seer_set_status("Paused — no handler for: " .. step.name)
+                            library:Notify("No handler yet for: " .. step.name .. " (Skip or Stop)")
+                            seer_bot.running = false
+                            break
+                        end
+
+                        seer_set_status("Running: " .. step.name)
+                        local ok = handler()
+                        if not seer_bot.running or shared.is_unloading then
+                            break
+                        end
+                        if ok then
+                            seer_advance()
+                        else
+                            seer_set_status("Failed: " .. step.name)
+                            library:Notify("Seer step failed: " .. step.name)
+                            seer_bot.running = false
+                            break
+                        end
+                    end
+                    task.wait(0.2)
+                end
+
+                if not seer_bot.running and seer_bot.status_text == "Running" then
+                    seer_set_status("Stopped")
+                else
+                    seer_update_labels()
+                end
             end
 
             local function seer_start()
@@ -18277,10 +18576,15 @@ if game.PlaceId == 3541987450 or game.PlaceId == 5208655184 or game.PlaceId == 1
                     library:Notify("Stop Trinket Bot first")
                     return
                 end
+                if game.PlaceId == 3541987450 or game.PlaceId == 5208655184 then
+                    library:Notify("Seer bot is for Gaia / Khei, not this place")
+                    return
+                end
+
                 seer_bot.running = true
-                seer_set_status("Running (runner not wired yet)")
-                library:Notify("Seer menu ready — step runner comes next. Progress UI is live.")
-                -- Keep running flag until Stop; no quest logic yet
+                seer_set_status("Starting")
+                library:Notify("Seer bot started")
+                task.spawn(seer_run_loop)
             end
 
             local function seer_skip_step()
@@ -18290,6 +18594,7 @@ if game.PlaceId == 3541987450 or game.PlaceId == 5208655184 or game.PlaceId == 1
                 end
                 seer_mark_completed(seer_bot.current_step)
                 seer_bot.current_step = math.min(seer_bot.current_step + 1, #SEER_STEPS + 1)
+                seer_save_settings()
                 seer_update_labels()
                 if seer_bot.current_step > #SEER_STEPS then
                     seer_set_status(seer_bot.running and "Checklist complete" or "Idle (complete)")
@@ -18301,10 +18606,13 @@ if game.PlaceId == 3541987450 or game.PlaceId == 5208655184 or game.PlaceId == 1
                 end
             end
 
+            seer_load_settings()
+
             local group_seer_bot = Tabs.Botting:AddLeftGroupbox("Seer Edict Bot")
 
             seer_status_label = group_seer_bot:AddLabel("Status: Idle")
             seer_step_label = group_seer_bot:AddLabel("Step 1/" .. #SEER_STEPS .. ": " .. SEER_STEPS[1].name)
+            seer_point_label = group_seer_bot:AddLabel("NPC point: not set (uses Lachesis if found)")
 
             group_seer_bot:AddDivider()
 
@@ -18323,11 +18631,13 @@ if game.PlaceId == 3541987450 or game.PlaceId == 5208655184 or game.PlaceId == 1
                         local idx = tonumber(selected:match("^(%d+)%."))
                         if idx and SEER_STEPS[idx] then
                             seer_bot.current_step = idx
+                            seer_save_settings()
                             seer_update_labels()
                             library:Notify("Seer start step set to " .. idx)
                         end
                     elseif type(selected) == "number" and SEER_STEPS[selected] then
                         seer_bot.current_step = selected
+                        seer_save_settings()
                         seer_update_labels()
                         library:Notify("Seer start step set to " .. selected)
                     end
@@ -18338,7 +18648,7 @@ if game.PlaceId == 3541987450 or game.PlaceId == 5208655184 or game.PlaceId == 1
 
             group_seer_bot:AddButton({
                 Text = "Start Seer Bot",
-                Tooltip = "No Gate — teleport/path only. Potion crafting + Day 12 AFK come in later steps.",
+                Tooltip = "Step 1: set spawn Southern Sanctuary via inn TP, path to scroom girl, talk.",
                 Func = function()
                     seer_start()
                 end
@@ -18369,6 +18679,26 @@ if game.PlaceId == 3541987450 or game.PlaceId == 5208655184 or game.PlaceId == 1
             group_seer_bot:AddDivider()
 
             group_seer_bot:AddButton({
+                Text = "Set Scroom Girl Point",
+                Tooltip = "Stand next to Lachesis / the table girl, then press — used after inn spawn",
+                Func = function()
+                    local char = plr.Character
+                    local hrp = char and FindFirstChild(char, "HumanoidRootPart")
+                    if not hrp then
+                        library:Notify("No character / HumanoidRootPart")
+                        return
+                    end
+                    seer_bot.step_points.gaia_scroom = hrp.Position
+                    seer_save_settings()
+                    seer_update_labels()
+                    library:Notify(string.format(
+                        "Scroom girl point: %.0f, %.0f, %.0f",
+                        hrp.Position.X, hrp.Position.Y, hrp.Position.Z
+                    ))
+                end
+            })
+
+            group_seer_bot:AddButton({
                 Text = "Set Day 12 AFK Spot",
                 Tooltip = "Saves your current position for the Day 12 AFK step",
                 Func = function()
@@ -18379,6 +18709,7 @@ if game.PlaceId == 3541987450 or game.PlaceId == 5208655184 or game.PlaceId == 1
                         return
                     end
                     seer_bot.afk_spot = hrp.Position
+                    seer_save_settings()
                     library:Notify(string.format(
                         "AFK spot set: %.0f, %.0f, %.0f",
                         seer_bot.afk_spot.X, seer_bot.afk_spot.Y, seer_bot.afk_spot.Z
@@ -18390,9 +18721,12 @@ if game.PlaceId == 3541987450 or game.PlaceId == 5208655184 or game.PlaceId == 1
                 Text = "Clear AFK Spot",
                 Func = function()
                     seer_bot.afk_spot = nil
+                    seer_save_settings()
                     library:Notify("AFK spot cleared")
                 end
             })
+
+            seer_update_labels()
 
             local group_seer_progress = Tabs.Botting:AddRightGroupbox("Seer Checklist")
 

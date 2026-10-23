@@ -18390,6 +18390,74 @@ if game.PlaceId == 3541987450 or game.PlaceId == 5208655184 or game.PlaceId == 1
                 return choices[1]
             end
 
+            -- SmoothTeleport hard-caps at 1500 studs; Seer often needs to close a gap after inn respawn.
+            local function seer_goto(targetPos)
+                if seer_aborting() or typeof(targetPos) ~= "Vector3" then
+                    return false
+                end
+
+                local char = plr.Character
+                local hrp = char and FindFirstChild(char, "HumanoidRootPart")
+                if not hrp then
+                    return false
+                end
+
+                local dist = (targetPos - hrp.Position).Magnitude
+                if dist > 1400 then
+                    seer_set_status(string.format("Far (%.0f studs) — snapping near target", dist))
+                    local offset = hrp.Position - targetPos
+                    if offset.Magnitude < 1 then
+                        offset = Vector3.new(0, 0, 8)
+                    else
+                        offset = offset.Unit * 8
+                    end
+                    local near = targetPos + offset + Vector3.new(0, 3, 0)
+                    pcall(function()
+                        plr.Character:PivotTo(CFrame.new(near))
+                        hrp.AssemblyLinearVelocity = Vector3.zero
+                        hrp.Velocity = Vector3.zero
+                    end)
+                    task.wait(0.4)
+                end
+
+                if seer_aborting() then
+                    return false
+                end
+
+                char = plr.Character
+                hrp = char and FindFirstChild(char, "HumanoidRootPart")
+                if not hrp then
+                    return false
+                end
+
+                dist = (targetPos - hrp.Position).Magnitude
+                if dist > 8 then
+                    -- Chunk if still somehow over the SmoothTeleport limit
+                    while not seer_aborting() do
+                        char = plr.Character
+                        hrp = char and FindFirstChild(char, "HumanoidRootPart")
+                        if not hrp then
+                            return false
+                        end
+                        dist = (targetPos - hrp.Position).Magnitude
+                        if dist <= 8 then
+                            break
+                        end
+                        if dist > 1400 then
+                            local dir = (targetPos - hrp.Position).Unit
+                            local hop = hrp.Position + dir * 1400
+                            SmoothTeleport(hop)
+                        else
+                            SmoothTeleport(targetPos)
+                            break
+                        end
+                        task.wait(0.05)
+                    end
+                end
+
+                return not seer_aborting()
+            end
+
             local function seer_talk_to_npc(npc, duration)
                 if not npc or seer_aborting() then return false end
                 local hrp = FindFirstChild(npc, "HumanoidRootPart")
@@ -18425,7 +18493,7 @@ if game.PlaceId == 3541987450 or game.PlaceId == 5208655184 or game.PlaceId == 1
                     local my = char and FindFirstChild(char, "HumanoidRootPart")
                     if my then
                         if (my.Position - hrp.Position).Magnitude > 12 then
-                            SmoothTeleport(hrp.Position + Vector3.new(0, 2, 0))
+                            seer_goto(hrp.Position + Vector3.new(0, 2, 0))
                         end
                         pcall(function()
                             fireclickdetector(click)
@@ -18449,6 +18517,12 @@ if game.PlaceId == 3541987450 or game.PlaceId == 5208655184 or game.PlaceId == 1
             end
 
             local function seer_step_gaia_scroom()
+                local target = seer_bot.step_points.gaia_scroom
+                if not target then
+                    library:Notify("Set Scroom Girl Point first (stand by her, then press the button)")
+                    return false
+                end
+
                 seer_set_status("Scroom girl: setting spawn (Southern Sanctuary)")
                 if not shared.teleport_to_inn then
                     library:Notify("Inn teleport unavailable (Gaia only)")
@@ -18468,25 +18542,35 @@ if game.PlaceId == 3541987450 or game.PlaceId == 5208655184 or game.PlaceId == 1
                     return false
                 end
 
-                local target = seer_bot.step_points.gaia_scroom
-                local npc = seer_find_npc("Lachesis")
-                if not target and npc then
-                    target = npc.HumanoidRootPart.Position + Vector3.new(0, 2, 0)
-                end
-                if not target then
-                    library:Notify("Set Scroom Girl Point first (stand by her), or Lachesis not found")
+                -- If spawn didn't stick, seer_goto snaps/chunks instead of the 1500 stud abort
+                seer_set_status("Scroom girl: pathing to NPC")
+                if not seer_goto(target) or seer_aborting() then
                     return false
                 end
 
-                seer_set_status("Scroom girl: pathing to NPC")
-                SmoothTeleport(target)
-                if seer_aborting() then return false end
-
+                local npc = seer_find_npc("Lachesis")
                 if not npc then
-                    npc = seer_find_npc("Lachesis")
+                    -- Point is set; try talking via proximity click on any nearby named NPC fallback
+                    library:Notify("Lachesis not found by name — stand-check: click whatever is at your point")
+                    -- Still attempt click on nearest ClickDetector NPC within 25 studs
+                    local npcs = FindFirstChild(ws, "NPCs")
+                    local best, best_dist
+                    local my = plr.Character and FindFirstChild(plr.Character, "HumanoidRootPart")
+                    if npcs and my then
+                        for _, child in ipairs(npcs:GetChildren()) do
+                            local nhrp = FindFirstChild(child, "HumanoidRootPart")
+                            if nhrp and FindFirstChildWhichIsA(child, "ClickDetector", true) then
+                                local d = (nhrp.Position - my.Position).Magnitude
+                                if d <= 25 and (not best_dist or d < best_dist) then
+                                    best, best_dist = child, d
+                                end
+                            end
+                        end
+                    end
+                    npc = best
                 end
                 if not npc then
-                    library:Notify("Lachesis (scroom girl) not found after path")
+                    library:Notify("No talkable NPC near scroom girl point")
                     return false
                 end
 

@@ -13289,6 +13289,7 @@ if game.PlaceId == 3541987450 or game.PlaceId == 5208655184 or game.PlaceId == 1
                     reequip_gate_in_loop = Toggles.ReequipGateInLoop == nil and true or Toggles.ReequipGateInLoop.Value,
                     time_between_looting = Options.TimeBetweenLooting and Options.TimeBetweenLooting.Value or 5,
                     proximity_check = Options.ProximityCheck and Options.ProximityCheck.Value or 0,
+                    skip_point_proximity = Options.SkipPointProximity and Options.SkipPointProximity.Value or 150,
                     critical_distance = Options.CriticalDistance and Options.CriticalDistance.Value or 60,
                     min_player_count = Options.MinPlayerCount and Options.MinPlayerCount.Value or 0,
                     speed = Options.TrinketBotSpeed and Options.TrinketBotSpeed.Value or 100,
@@ -14648,10 +14649,46 @@ if game.PlaceId == 3541987450 or game.PlaceId == 5208655184 or game.PlaceId == 1
                     end
                 end
 
+                local function get_skip_point_proximity()
+                    return Options.SkipPointProximity and Options.SkipPointProximity.Value or 0
+                end
+
+                -- If point index (or following ones) have a player nearby, advance to the first clear point.
+                -- Never skips gate points. Last point is used even if occupied.
+                local function advancePastOccupiedPoints(start_index)
+                    local radius = get_skip_point_proximity()
+                    if radius <= 0 then
+                        return start_index
+                    end
+                    local idx = start_index
+                    while idx <= #trinket_bot.path_points do
+                        local candidate = trinket_bot.path_points[idx]
+                        if not candidate then
+                            break
+                        end
+                        if candidate.is_gate_point then
+                            break
+                        end
+                        local occupied, who = IsPlayerNearPosition(candidate.position, radius)
+                        if occupied and idx < #trinket_bot.path_points then
+                            library:Notify(string.format("Player %s on point %d (within %d studs) - skipping", who, idx, math.floor(radius)))
+                            idx = idx + 1
+                        else
+                            break
+                        end
+                    end
+                    return idx
+                end
+
                 local i = 1
                 while i <= #trinket_bot.path_points do
                     if trinket_bot.moderator_detected then
                         library:Notify("Moderator detected - exiting main loop")
+                        break
+                    end
+
+                    i = advancePastOccupiedPoints(i)
+                    if i > #trinket_bot.path_points then
                         break
                     end
 
@@ -16172,32 +16209,12 @@ if game.PlaceId == 3541987450 or game.PlaceId == 5208655184 or game.PlaceId == 1
                         end
                     end
 
-                    if i < #trinket_bot.path_points and not path_has_gates then
-                        local next_point = trinket_bot.path_points[i + 1]
-                        if next_point then
-                            local has_player, player_name = IsPlayerNearPosition(next_point.position, 65)
-                            local stay_in_server = Toggles.StayInServer and Toggles.StayInServer.Value or false
-
-                            if has_player and not stay_in_server then
-                                local is_test_mode = Options.TestPath and Options.TestPath.Value or false
-
-                                library:Notify(string.format("Player %s blocking point %d - reversing to point 1 and serverhopping", player_name, i + 1))
-
-                                for reverse_i = i, 1, -1 do
-                                     if not trinket_bot.path_running then break end
-                                    local reverse_point = trinket_bot.path_points[reverse_i]
-                                    if reverse_point then
-                                        SmoothTeleport(reverse_point.position)
-                                    end
-                                end
-
-                                TrinketBotServerhop(string.format("Player %s blocking path so i traversed back to point 1!!", player_name))
-                                return
-                            end
-                        end
+                    -- After finishing this point, jump ahead past any occupied following points
+                    local next_index = advancePastOccupiedPoints(i + 1)
+                    if next_index > i + 1 then
+                        library:Notify(string.format("Skipping occupied points %d→%d", i + 1, next_index))
                     end
-
-                    i = i + 1
+                    i = next_index
                 end
 
                 if kick_after_path then
@@ -16813,7 +16830,17 @@ if game.PlaceId == 3541987450 or game.PlaceId == 5208655184 or game.PlaceId == 1
                 Max = 1000,
                 Rounding = 0,
                 Compact = true,
-                Tooltip = "If a player is within X studs, wait 5s then serverhop (0 = disabled)"
+                Tooltip = "If a player is within X studs of you, wait 5s then serverhop (0 = disabled)"
+            })
+
+            group_trinket_bot:AddSlider("SkipPointProximity", {
+                Text = "Skip Point Proximity (studs)",
+                Default = 150,
+                Min = 0,
+                Max = 1000,
+                Rounding = 0,
+                Compact = true,
+                Tooltip = "If the next path point has a player within this range, skip it and try the following point (0 = disabled)"
             })
 
             group_trinket_bot:AddSlider("CriticalDistance", {
@@ -16926,6 +16953,7 @@ if game.PlaceId == 3541987450 or game.PlaceId == 5208655184 or game.PlaceId == 1
                 if Toggles.ReequipGateInLoop then Toggles.ReequipGateInLoop:SetValue(settings.reequip_gate_in_loop == nil and true or settings.reequip_gate_in_loop) end
                 if Options.TimeBetweenLooting then Options.TimeBetweenLooting:SetValue(settings.time_between_looting or 5) end
                 if Options.ProximityCheck then Options.ProximityCheck:SetValue(settings.proximity_check or 0) end
+                if Options.SkipPointProximity then Options.SkipPointProximity:SetValue(settings.skip_point_proximity or 150) end
                 if Options.CriticalDistance then Options.CriticalDistance:SetValue(settings.critical_distance or 60) end
                 if Options.MinPlayerCount then Options.MinPlayerCount:SetValue(settings.min_player_count or 0) end
                 if Options.TrinketBotSpeed then Options.TrinketBotSpeed:SetValue(settings.speed or 100) end
@@ -17882,6 +17910,7 @@ if game.PlaceId == 3541987450 or game.PlaceId == 5208655184 or game.PlaceId == 1
                             reequip_gate_in_loop = Toggles.ReequipGateInLoop == nil and true or Toggles.ReequipGateInLoop.Value,
                             time_between_looting = Options.TimeBetweenLooting and Options.TimeBetweenLooting.Value or 5,
                             proximity_check = Options.ProximityCheck and Options.ProximityCheck.Value or 0,
+                            skip_point_proximity = Options.SkipPointProximity and Options.SkipPointProximity.Value or 150,
                             critical_distance = Options.CriticalDistance and Options.CriticalDistance.Value or 60,
                             min_player_count = Options.MinPlayerCount and Options.MinPlayerCount.Value or 0,
                             speed = Options.TrinketBotSpeed and Options.TrinketBotSpeed.Value or 100,

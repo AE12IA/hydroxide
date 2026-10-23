@@ -18174,6 +18174,291 @@ if game.PlaceId == 3541987450 or game.PlaceId == 5208655184 or game.PlaceId == 1
                 Tooltip = "Wait time before respawning and restarting path (in minutes)"
             })
 
+            -- Seer Edict Bot (menu shell — step runner comes next)
+            local seer_bot = {
+                running = false,
+                current_step = 1,
+                completed = {},
+                afk_spot = nil, -- Vector3 for Day 12 AFK
+                status_text = "Idle",
+            }
+            cheat_client.seer_bot = seer_bot
+
+            local SEER_STEPS = {
+                { id = "gaia_scroom",          region = "Gaia",  name = "Southern Sanctuary scroom quest" },
+                { id = "gaia_hp_pot",           region = "Gaia",  name = "Oresfall HP potion quest" },
+                { id = "gaia_homeless",         region = "Gaia",  name = "Oresfall homeless guy quest" },
+                { id = "gaia_idol",             region = "Gaia",  name = "Oresfall Idol of the Forgotten" },
+                { id = "gaia_toilet",           region = "Gaia",  name = "Flowerlight toilet hand quest" },
+                { id = "gaia_turnip",           region = "Gaia",  name = "Alana turnip quest" },
+                { id = "gaia_dagger",           region = "Gaia",  name = "Tundra Raynauld dagger quest" },
+                { id = "gaia_sigil",            region = "Gaia",  name = "Castle Sanctuary Sigil Helm quest" },
+                { id = "gaia_ice_pot",          region = "Gaia",  name = "Oresfall ice potion quest" },
+                { id = "gaia_snail",            region = "Gaia",  name = "Snail dragon speech quest" },
+                { id = "gaia_skycastle_1",      region = "Gaia",  name = "Skycastle quest 1" },
+                { id = "gaia_skycastle_2",      region = "Gaia",  name = "Skycastle quest 2" },
+                { id = "gaia_skycastle_3",      region = "Gaia",  name = "Skycastle quest 3" },
+                { id = "gaia_liquid_wisdom",    region = "Gaia",  name = "Central Sanctuary liquid wisdom" },
+                { id = "gaia_castle_rock",      region = "Gaia",  name = "Enter Castle Rock (via statue)" },
+                { id = "gaia_sunken",           region = "Gaia",  name = "Sunken Passage / Last Bastion NPCs" },
+                { id = "gaia_shore",            region = "Gaia",  name = "Shore delivery quest" },
+                { id = "khei_gulnir",           region = "Khei",  name = "Gulnir delivery (talk again after girl)" },
+                { id = "khei_crystal_root",     region = "Khei",  name = "Crystal Root quest" },
+                { id = "khei_uber_title",       region = "Khei",  name = "Obtain Uber Title" },
+                { id = "khei_day12_afk",        region = "Khei",  name = "AFK until Day 12" },
+                { id = "wipe",                  region = "Wipe",  name = "Wipe (notify when ready)" },
+            }
+
+            local seer_status_label
+            local seer_step_label
+
+            local function seer_step_names()
+                local names = {}
+                for i, step in ipairs(SEER_STEPS) do
+                    names[i] = string.format("%d. [%s] %s", i, step.region, step.name)
+                end
+                return names
+            end
+
+            local function seer_update_labels()
+                local step = SEER_STEPS[seer_bot.current_step]
+                local step_text = step
+                    and string.format("Step %d/%d: %s", seer_bot.current_step, #SEER_STEPS, step.name)
+                    or "Step: —"
+                if seer_status_label and seer_status_label.SetText then
+                    seer_status_label:SetText("Status: " .. (seer_bot.status_text or "Idle"))
+                end
+                if seer_step_label and seer_step_label.SetText then
+                    seer_step_label:SetText(step_text)
+                end
+            end
+
+            local function seer_set_status(text)
+                seer_bot.status_text = text
+                seer_update_labels()
+            end
+
+            local function seer_mark_completed(index)
+                local step = SEER_STEPS[index]
+                if step then
+                    seer_bot.completed[step.id] = true
+                end
+            end
+
+            local function seer_is_completed(index)
+                local step = SEER_STEPS[index]
+                return step and seer_bot.completed[step.id] == true
+            end
+
+            local function seer_reset_progress()
+                seer_bot.completed = {}
+                seer_bot.current_step = 1
+                seer_set_status(seer_bot.running and "Running" or "Idle")
+                library:Notify("Seer progress reset")
+            end
+
+            -- Placeholder: real step runner will replace this
+            local function seer_stop()
+                if not seer_bot.running then
+                    library:Notify("Seer bot is not running")
+                    return
+                end
+                seer_bot.running = false
+                seer_set_status("Stopped")
+                library:Notify("Seer bot stopped")
+            end
+
+            local function seer_start()
+                if seer_bot.running then
+                    library:Notify("Seer bot already running")
+                    return
+                end
+                if trinket_bot.path_running then
+                    library:Notify("Stop Trinket Bot first")
+                    return
+                end
+                seer_bot.running = true
+                seer_set_status("Running (runner not wired yet)")
+                library:Notify("Seer menu ready — step runner comes next. Progress UI is live.")
+                -- Keep running flag until Stop; no quest logic yet
+            end
+
+            local function seer_skip_step()
+                if seer_bot.current_step > #SEER_STEPS then
+                    library:Notify("Already past last step")
+                    return
+                end
+                seer_mark_completed(seer_bot.current_step)
+                seer_bot.current_step = math.min(seer_bot.current_step + 1, #SEER_STEPS + 1)
+                seer_update_labels()
+                if seer_bot.current_step > #SEER_STEPS then
+                    seer_set_status(seer_bot.running and "Checklist complete" or "Idle (complete)")
+                    library:Notify("Seer checklist finished (manual skip)")
+                else
+                    local step = SEER_STEPS[seer_bot.current_step]
+                    library:Notify("Skipped → " .. (step and step.name or "?"))
+                    seer_update_labels()
+                end
+            end
+
+            local group_seer_bot = Tabs.Botting:AddLeftGroupbox("Seer Edict Bot")
+
+            seer_status_label = group_seer_bot:AddLabel("Status: Idle")
+            seer_step_label = group_seer_bot:AddLabel("Step 1/" .. #SEER_STEPS .. ": " .. SEER_STEPS[1].name)
+
+            group_seer_bot:AddDivider()
+
+            group_seer_bot:AddDropdown("SeerStartFrom", {
+                Text = "Start From Step",
+                Values = seer_step_names(),
+                Default = 1,
+                Tooltip = "Jump the runner to this step (does not auto-mark previous as done)"
+            })
+
+            group_seer_bot:AddButton({
+                Text = "Apply Start From",
+                Func = function()
+                    local selected = Options.SeerStartFrom and Options.SeerStartFrom.Value
+                    if type(selected) == "string" then
+                        local idx = tonumber(selected:match("^(%d+)%."))
+                        if idx and SEER_STEPS[idx] then
+                            seer_bot.current_step = idx
+                            seer_update_labels()
+                            library:Notify("Seer start step set to " .. idx)
+                        end
+                    elseif type(selected) == "number" and SEER_STEPS[selected] then
+                        seer_bot.current_step = selected
+                        seer_update_labels()
+                        library:Notify("Seer start step set to " .. selected)
+                    end
+                end
+            })
+
+            group_seer_bot:AddDivider()
+
+            group_seer_bot:AddButton({
+                Text = "Start Seer Bot",
+                Tooltip = "No Gate — teleport/path only. Potion crafting + Day 12 AFK come in later steps.",
+                Func = function()
+                    seer_start()
+                end
+            })
+
+            group_seer_bot:AddButton({
+                Text = "Stop Seer Bot",
+                Func = function()
+                    seer_stop()
+                end
+            })
+
+            group_seer_bot:AddButton({
+                Text = "Skip Current Step",
+                Tooltip = "Mark current step done and advance",
+                Func = function()
+                    seer_skip_step()
+                end
+            })
+
+            group_seer_bot:AddButton({
+                Text = "Reset Progress",
+                Func = function()
+                    seer_reset_progress()
+                end
+            })
+
+            group_seer_bot:AddDivider()
+
+            group_seer_bot:AddButton({
+                Text = "Set Day 12 AFK Spot",
+                Tooltip = "Saves your current position for the Day 12 AFK step",
+                Func = function()
+                    local char = plr.Character
+                    local hrp = char and FindFirstChild(char, "HumanoidRootPart")
+                    if not hrp then
+                        library:Notify("No character / HumanoidRootPart")
+                        return
+                    end
+                    seer_bot.afk_spot = hrp.Position
+                    library:Notify(string.format(
+                        "AFK spot set: %.0f, %.0f, %.0f",
+                        seer_bot.afk_spot.X, seer_bot.afk_spot.Y, seer_bot.afk_spot.Z
+                    ))
+                end
+            })
+
+            group_seer_bot:AddButton({
+                Text = "Clear AFK Spot",
+                Func = function()
+                    seer_bot.afk_spot = nil
+                    library:Notify("AFK spot cleared")
+                end
+            })
+
+            local group_seer_progress = Tabs.Botting:AddRightGroupbox("Seer Checklist")
+
+            group_seer_progress:AddLabel("Gaia → Khei → Day 12 AFK → Wipe")
+            group_seer_progress:AddLabel("No Gate. Pots: gather + brew later.")
+
+            group_seer_progress:AddDivider()
+
+            -- Compact region counters for the checklist overview
+            local function seer_region_counts()
+                local totals = { Gaia = 0, Khei = 0, Wipe = 0 }
+                local done = { Gaia = 0, Khei = 0, Wipe = 0 }
+                for i, step in ipairs(SEER_STEPS) do
+                    totals[step.region] = (totals[step.region] or 0) + 1
+                    if seer_is_completed(i) then
+                        done[step.region] = (done[step.region] or 0) + 1
+                    end
+                end
+                return totals, done
+            end
+
+            local seer_gaia_label = group_seer_progress:AddLabel("Gaia: 0/17")
+            local seer_khei_label = group_seer_progress:AddLabel("Khei: 0/4")
+            local seer_wipe_label = group_seer_progress:AddLabel("Wipe: 0/1")
+
+            local function seer_refresh_region_labels()
+                local totals, done = seer_region_counts()
+                if seer_gaia_label and seer_gaia_label.SetText then
+                    seer_gaia_label:SetText(string.format("Gaia: %d/%d", done.Gaia, totals.Gaia))
+                end
+                if seer_khei_label and seer_khei_label.SetText then
+                    seer_khei_label:SetText(string.format("Khei: %d/%d", done.Khei, totals.Khei))
+                end
+                if seer_wipe_label and seer_wipe_label.SetText then
+                    seer_wipe_label:SetText(string.format("Wipe: %d/%d", done.Wipe, totals.Wipe))
+                end
+            end
+
+            local _seer_update_labels = seer_update_labels
+            seer_update_labels = function()
+                _seer_update_labels()
+                seer_refresh_region_labels()
+            end
+            seer_refresh_region_labels()
+
+            group_seer_progress:AddDivider()
+
+            group_seer_progress:AddButton({
+                Text = "Print Checklist To Console",
+                Func = function()
+                    warn("======== SEER EDICT CHECKLIST ========")
+                    for i, step in ipairs(SEER_STEPS) do
+                        local mark = seer_is_completed(i) and "[x]" or "[ ]"
+                        local current = (i == seer_bot.current_step) and " <==" or ""
+                        warn(string.format("%s %2d. [%s] %s%s", mark, i, step.region, step.name, current))
+                    end
+                    if seer_bot.afk_spot then
+                        warn(string.format("AFK spot: %.0f, %.0f, %.0f", seer_bot.afk_spot.X, seer_bot.afk_spot.Y, seer_bot.afk_spot.Z))
+                    else
+                        warn("AFK spot: not set")
+                    end
+                    warn("======================================")
+                    library:Notify("Checklist printed to console (F9)")
+                end
+            })
+
             if game.PlaceId == 3541987450 or game.PlaceId == 5208655184 then
                 local lives_table = {
                     ["Azael"] = 2,
